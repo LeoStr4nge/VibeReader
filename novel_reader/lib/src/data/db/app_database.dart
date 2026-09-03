@@ -207,6 +207,15 @@ class AppDatabase {
     );
   }
 
+  /// 更新书籍最近打开时间（书架按此排序，阅读时调用）。
+  /// 不参与同步合并，仅反映本设备的阅读顺序。
+  void touchBookLastOpened(String bookId) {
+    _db.execute(
+      'UPDATE books SET last_opened_at = ? WHERE id = ?;',
+      [DateTime.now().millisecondsSinceEpoch, bookId],
+    );
+  }
+
   ReadingProgress? getProgress(String bookId) {
     final rows = _db.select(
       '''
@@ -251,7 +260,9 @@ class AppDatabase {
     );
   }
 
-  List<Book> listRecentBooks({int limit = 30}) {
+  /// 列出书架全部书籍（按最近打开排序）。
+  /// [limit] 传负数表示不限制数量。
+  List<Book> listRecentBooks({int limit = -1}) {
     final rows = _db.select(
       '''
       SELECT id, title, format, file_path, file_hash, added_at, last_opened_at
@@ -302,6 +313,12 @@ class AppDatabase {
         now,
       ],
     );
+  }
+
+  /// 物理删除书籍记录（进度/书签/搜索索引随外键级联删除）。
+  /// 仅供本地清理失效条目；同步删除请走墓碑路径。
+  void deleteBook(String bookId) {
+    _db.execute('DELETE FROM books WHERE id = ?;', [bookId]);
   }
 
   /// 软删书签（墓碑），供同步传播删除；本地清理可调用 [purgeDeletedBookmarks]。

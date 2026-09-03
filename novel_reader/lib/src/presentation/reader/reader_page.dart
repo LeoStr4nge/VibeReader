@@ -93,6 +93,8 @@ class _TxtReaderPageState extends State<_TxtReaderPage> {
   void initState() {
     super.initState();
     _settings = widget.db.getReaderSettings();
+    // 更新最近打开时间：书架按此字段排序，最近读过的排最前。
+    widget.db.touchBookLastOpened(widget.args.bookId);
     // 读取与章节识别都放到后台 isolate，避免大文件卡死 UI。
     // 注意：闭包只能捕获简单值（如路径字符串），
     // 否则会连带捕获 State/Widget 对象导致 isolate 消息非法。

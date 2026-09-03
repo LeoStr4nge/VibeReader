@@ -93,6 +93,10 @@ class SyncClient {
 
   /// POST /api/file：流式上传书文件。
   /// [onProgress] 已发送字节/总字节。
+  ///
+  /// 使用 dart:io HttpClient 原生流式上传（http 包的 StreamedRequest
+  /// 在部分平台存在 IOSink 类型冲突，报 500 "_IOSinkImpl is not a
+  /// subtype of StreamConsumer&lt;Uint8List&gt;"）。
   Future<void> uploadFile(
     String host,
     int port, {
@@ -106,35 +110,33 @@ class SyncClient {
     final total = await file.length();
     var sent = 0;
 
-    final request = http.StreamedRequest(
-      'POST',
-      Uri.parse('${_base(host, port)}/api/file'),
-    );
-    request.headers['x-title'] = _headerSafe(title);
-    request.headers['x-format'] = format;
-    request.headers['x-hash'] = contentHash;
-    request.contentLength = total;
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final req = await client.openUrl(
+        'POST',
+        Uri.parse('${_base(host, port)}/api/file'),
+      );
+      req.headers.set('x-title', _headerSafe(title));
+      req.headers.set('x-format', format);
+      req.headers.set('x-hash', contentHash);
+      req.headers.contentType = ContentType.binary;
+      req.contentLength = total;
 
-    final upload = file.openRead().listen(
-      (chunk) {
-        sent += chunk.length;
-        onProgress?.call(sent, total);
-        request.sink.add(chunk);
-      },
-      onDone: () => request.sink.close(),
-      onError: (Object e) {
-        request.sink.addError(e);
-        request.sink.close();
-      },
-    );
-
-    final response = await _client.send(request).timeout(
-      const Duration(minutes: 10),
-    );
-    await upload.cancel();
-    final body = await response.stream.bytesToString();
-    if (response.statusCode != 200) {
-      throw SyncNetworkException('文件上传失败: HTTP ${response.statusCode} $body');
+      await req.addStream(
+        file.openRead().map((chunk) {
+          sent += chunk.length;
+          onProgress?.call(sent, total);
+          return chunk;
+        }),
+      );
+      final response = await req.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode != 200) {
+        throw SyncNetworkException('文件上传失败: HTTP ${response.statusCode} $body');
+      }
+    } finally {
+      client.close();
     }
   }
 

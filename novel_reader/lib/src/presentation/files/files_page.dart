@@ -115,6 +115,13 @@ class _FilesPageState extends State<FilesPage> with WidgetsBindingObserver {
                 )
               : null,
           actions: [
+            // 一键导入当前文件夹内的所有书籍（不含子文件夹）
+            if (_dirPath != null)
+              IconButton(
+                onPressed: _importAllInFolder,
+                icon: const Icon(Icons.library_add),
+                tooltip: '导入本文件夹全部书籍',
+              ),
             // Windows 保持原有目录选择器
             if (!_isAndroid)
               IconButton(
@@ -200,7 +207,9 @@ class _FilesPageState extends State<FilesPage> with WidgetsBindingObserver {
     }).toList()
       ..sort((a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
 
-    return ListView.separated(
+    return Scrollbar(
+      interactive: true,
+      child: ListView.separated(
       itemCount: children.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
@@ -227,6 +236,7 @@ class _FilesPageState extends State<FilesPage> with WidgetsBindingObserver {
           onTap: () => _openBook(entity.path, format),
         );
       },
+      ),
     );
   }
 
@@ -241,25 +251,60 @@ class _FilesPageState extends State<FilesPage> with WidgetsBindingObserver {
     }
   }
 
-  void _openBook(String filePath, BookFormat format) {
+  Book _makeBook(String filePath, BookFormat format) {
     final now = DateTime.now();
     final id = sha1OfString(filePath);
-    final title = p.basenameWithoutExtension(filePath);
-    final book = Book(
+    return Book(
       id: id,
-      title: title,
+      title: p.basenameWithoutExtension(filePath),
       format: format,
       filePath: filePath,
       fileHash: id,
       addedAt: now,
       lastOpenedAt: now,
     );
+  }
+
+  /// 把当前文件夹内的所有书籍文件（txt/pdf，不含子文件夹）加入书架。
+  Future<void> _importAllInFolder() async {
+    final dirPath = _dirPath;
+    if (dirPath == null) return;
+
+    final files = Directory(dirPath).listSync().whereType<File>().where((f) {
+      final format = bookFormatFromPath(f.path);
+      return format == BookFormat.txt || format == BookFormat.pdf;
+    }).toList();
+
+    if (files.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('本文件夹内没有 txt / pdf 书籍')),
+        );
+      }
+      return;
+    }
+
+    // 逐本入库；数量多时避免卡 UI，放到微任务间隙让出主线程。
+    for (final f in files) {
+      widget.db.upsertBook(_makeBook(f.path, bookFormatFromPath(f.path)));
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已将 ${files.length} 本书加入书架')),
+      );
+    }
+  }
+
+  void _openBook(String filePath, BookFormat format) {
+    final book = _makeBook(filePath, format);
     widget.db.upsertBook(book);
 
     Navigator.of(context).pushNamed(
       ReaderRoute.name,
       arguments: ReaderRouteArgs(
-        bookId: id,
+        bookId: book.id,
         filePath: filePath,
         format: format,
       ),
