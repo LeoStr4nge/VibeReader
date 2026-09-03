@@ -30,3 +30,6 @@ novel_reader/android/local.properties
 *.jks
 *.keystore
 key.properties
+
+# ===== 本地规划文档（仅本地使用）=====
+小说阅读器App原型规划.md
