@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:isolate';
 
 import 'package:flutter/material.dart';
@@ -89,6 +90,88 @@ class _TxtReaderPageState extends State<_TxtReaderPage> {
   // 进度条拖拽中的临时值（null 表示未在拖拽）
   double? _dragValue;
 
+  // ---------------- 自动翻页 ----------------
+  Timer? _autoTimer;
+  int _autoIntervalSec = 10;
+  bool _autoRunning = false;
+
+  /// 切换自动翻页开关；长按按钮可选择间隔。
+  void _toggleAuto() {
+    if (_autoRunning) {
+      _stopAuto();
+      _showAutoHint('已停止自动翻页');
+    } else {
+      _startAuto();
+      _showAutoHint('自动翻页开启：每 $_autoIntervalSec 秒一页（长按按钮可调间隔）');
+    }
+  }
+
+  void _startAuto() {
+    _autoTimer?.cancel();
+    _autoTimer = Timer.periodic(
+      Duration(seconds: _autoIntervalSec),
+      (_) => _autoNext(),
+    );
+    setState(() => _autoRunning = true);
+  }
+
+  void _stopAuto() {
+    _autoTimer?.cancel();
+    _autoTimer = null;
+    if (mounted) setState(() => _autoRunning = false);
+  }
+
+  void _autoNext() {
+    final w = _lastMaxWidth;
+    final h = _lastMaxHeight;
+    final s = _lastStyle;
+    if (w == null || h == null || s == null) return;
+    if (_pageCount != null && _currentPage >= _pageCount! - 1) {
+      // 读到书末：自动停止
+      _stopAuto();
+      _showAutoHint('已读到书末，自动翻页停止');
+      return;
+    }
+    _goNext(w, h, s);
+  }
+
+  Future<void> _pickAutoInterval() async {
+    final v = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('自动翻页间隔'),
+        children: [
+          for (final sec in const [5, 10, 15, 30, 60])
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialogContext).pop(sec),
+              child: Text(
+                '$sec 秒',
+                style: TextStyle(
+                  fontWeight: sec == _autoIntervalSec
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (v == null || v == _autoIntervalSec) return;
+    setState(() => _autoIntervalSec = v);
+    if (_autoRunning) _startAuto(); // 以新间隔重启计时
+    _showAutoHint('自动翻页间隔已设为 $v 秒');
+  }
+
+  void _showAutoHint(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -111,6 +194,7 @@ class _TxtReaderPageState extends State<_TxtReaderPage> {
 
   @override
   void dispose() {
+    _autoTimer?.cancel();
     _pageController?.dispose();
     super.dispose();
   }
@@ -125,6 +209,16 @@ class _TxtReaderPageState extends State<_TxtReaderPage> {
         backgroundColor: theme.background,
         foregroundColor: theme.foreground,
         actions: [
+          IconButton(
+            onPressed: _toggleAuto,
+            onLongPress: _pickAutoInterval,
+            icon: Icon(
+              _autoRunning ? Icons.pause_circle : Icons.play_circle_outline,
+            ),
+            tooltip: _autoRunning
+                ? '停止自动翻页（长按调间隔）'
+                : '自动翻页（长按调间隔）',
+          ),
           IconButton(
             onPressed: _addBookmark,
             icon: const Icon(Icons.bookmark_add),
@@ -1126,6 +1220,11 @@ class _PdfReaderPageState extends State<_PdfReaderPage> {
   bool _docReady = false;
   double? _dragValue;
 
+  // ---------------- 自动翻页 ----------------
+  Timer? _autoTimer;
+  int _autoIntervalSec = 10;
+  bool _autoRunning = false;
+
   @override
   void initState() {
     super.initState();
@@ -1134,6 +1233,84 @@ class _PdfReaderPageState extends State<_PdfReaderPage> {
         widget.args.initialPdfPage ??
         widget.db.getProgress(widget.args.bookId)?.pdfPage ??
         1;
+  }
+
+  @override
+  void dispose() {
+    _autoTimer?.cancel();
+    super.dispose();
+  }
+
+  /// 切换自动翻页开关；长按按钮可选择间隔。
+  void _toggleAuto() {
+    if (_autoRunning) {
+      _stopAuto();
+      _showAutoHint('已停止自动翻页');
+    } else {
+      _startAuto();
+      _showAutoHint('自动翻页开启：每 $_autoIntervalSec 秒一页（长按按钮可调间隔）');
+    }
+  }
+
+  void _startAuto() {
+    _autoTimer?.cancel();
+    _autoTimer = Timer.periodic(
+      Duration(seconds: _autoIntervalSec),
+      (_) => _autoNext(),
+    );
+    setState(() => _autoRunning = true);
+  }
+
+  void _stopAuto() {
+    _autoTimer?.cancel();
+    _autoTimer = null;
+    if (mounted) setState(() => _autoRunning = false);
+  }
+
+  void _autoNext() {
+    if (_pageCount > 0 && _page >= _pageCount) {
+      _stopAuto();
+      _showAutoHint('已读到最后一页，自动翻页停止');
+      return;
+    }
+    _goTo(_page + 1);
+  }
+
+  Future<void> _pickAutoInterval() async {
+    final v = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('自动翻页间隔'),
+        children: [
+          for (final sec in const [5, 10, 15, 30, 60])
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialogContext).pop(sec),
+              child: Text(
+                '$sec 秒',
+                style: TextStyle(
+                  fontWeight: sec == _autoIntervalSec
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (v == null || v == _autoIntervalSec) return;
+    setState(() => _autoIntervalSec = v);
+    if (_autoRunning) _startAuto();
+    _showAutoHint('自动翻页间隔已设为 $v 秒');
+  }
+
+  void _showAutoHint(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
   }
 
   void _persist(int page) {
@@ -1197,6 +1374,16 @@ class _PdfReaderPageState extends State<_PdfReaderPage> {
       appBar: AppBar(
         title: Text(title),
         actions: [
+          IconButton(
+            onPressed: _toggleAuto,
+            onLongPress: _pickAutoInterval,
+            icon: Icon(
+              _autoRunning ? Icons.pause_circle : Icons.play_circle_outline,
+            ),
+            tooltip: _autoRunning
+                ? '停止自动翻页（长按调间隔）'
+                : '自动翻页（长按调间隔）',
+          ),
           IconButton(
             onPressed: _addBookmark,
             icon: const Icon(Icons.bookmark_add),
