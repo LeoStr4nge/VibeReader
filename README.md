@@ -1,79 +1,97 @@
-# VibeReader 原型（novel_reader）
+# VibeReader
 
-目标：做一个可在 Windows 11 与 Android 运行的小说阅读器原型，优先把 TXT 阅读体验做完整，PDF 先做到可用与续读。
+跨平台本地小说阅读器，支持 Windows 与 Android。无需导入书库、无需账号，直接浏览文件夹打开 TXT/PDF 阅读；阅读进度、书签、标签全部本地持久化，并支持局域网多设备同步。
 
-## 当前状态
+## 功能
 
-- Flutter 工程已创建：`./novel_reader`
-- 已跑通 Windows 构建：`flutter build windows --debug` 通过
-- 已实现最小可用闭环：
-  - 文件视图：选择文件夹 → 浏览 TXT/PDF → 打开阅读
-  - TXT：分页缓存 + 左右翻页（PageView）+ 续读（保存 charOffset）
-  - PDF：阅读页占位（仅展示路径，后续接入渲染）
-  - 书架：展示最近阅读列表，点击继续阅读
-- Android：`flutter doctor` 提示 cmdline-tools/SDK license 未完善，不影响 Windows 端继续开发；Android 真机/模拟器运行前需补齐
+### 阅读
 
-## 环境准备（Windows 11）
+- **TXT**：直接浏览文件夹打开（不强制入库）；中文小说章节自动识别（第X章/序章等常见格式）生成目录；后台 Isolate 分页缓存，左右翻页；进度条拖拽跳转
+- **PDF**：基于 pdfrx 渲染，翻页/跳页/页码续读
+- **阅读设置**：字号、行距、页边距、主题（含夜间），即改即生效并持久化
+- **续读**：TXT 记录章节+字符偏移，PDF 记录页码，重新打开自动定位
 
-1. 安装 Flutter SDK
-   - 下载：https://flutter.dev/docs/get-started/install/windows
-   - 解压到：`C:\src\flutter`（示例）
-   - 将 `C:\src\flutter\bin` 加入系统 PATH，重新打开终端
-   - 运行 `flutter doctor`，确保能正常执行
+### 书签与搜索
 
-2. 启用 Windows 桌面开发（用于先跑通 Windows 端）
-   - 安装 Visual Studio 2022（或 Build Tools），勾选 **Desktop development with C++**
-   - 运行 `flutter doctor`，确认 Windows toolchain 正常
+- 书签记录精确位置（TXT：字符偏移+章节；PDF：页码）及文字摘录
+- 标签系统：书签可打多标签，书签中心支持跨书按标签筛选
+- 全书架全文搜索：首次打开自动建立 500 字分段索引，后台构建不卡 UI
 
-3. Android（可后置）
-   - 安装 Android Studio + Android SDK
-   - `flutter doctor` 按提示补齐 Android toolchain
+### 局域网同步
 
-## 运行（Windows）
+两台设备（如 Windows + Android）连同一 WiFi 即可互相同步：
+
+- 同步范围：阅读进度、书签、标签、书文件本体（TXT/PDF）
+- 自动发现：UDP 广播探测 + TCP 子网扫描兜底；也可手动输入 IP 连接
+- 冲突解决：记录级时间戳 LWW（新者胜），删除通过墓碑传播
+- 图书身份：按文件内容 MD5 识别，同一本书在不同设备不同路径/文件名也能正确匹配
+- 传输可靠性：流式上传/下载带进度显示，落盘前 MD5 校验
+
+### 数据存储
+
+全部本地 SQLite，无任何云端依赖：
+
+| 平台 | 数据库位置 |
+|---|---|
+| Windows | `%APPDATA%\com.novel\com.novel.reader\novel_reader\db\` |
+| Android | 应用私有目录 |
+
+同步下载的书籍存放于「文档/sync_incoming」；自行打开的书保持原位置不动。
+
+## 技术栈
+
+- [Flutter](https://flutter.dev)（Dart 3.13+）
+- SQLite（`sqlite3` + `sqlite3_flutter_libs`，直接 SQL 无 ORM）
+- [pdfrx](https://pub.dev/packages/pdfrx)（PDF 渲染）
+- [shelf](https://pub.dev/packages/shelf) + [http](https://pub.dev/packages/http)（局域网同步的服务端/客户端）
+
+## 项目结构
+
+```
+novel_reader/
+├── lib/src/
+│   ├── data/          # 数据层：SQLite 数据库、TXT 章节识别
+│   ├── domain/        # 领域模型：Book、Bookmark、Progress、Settings
+│   ├── presentation/  # UI：书架/文件/阅读/书签中心/搜索/同步页
+│   ├── sync/          # 局域网同步：协议模型、合并器、服务端、客户端、UDP 发现
+│   └── utils/         # 编码探测、内容哈希、格式工具
+└── test/              # 单元测试（含同步合并收敛性、真实 HTTP 回环测试）
+```
+
+## 构建与运行
+
+### Windows
 
 ```powershell
 cd novel_reader
 flutter pub get
-flutter run -d windows
+flutter run -d windows          # 开发调试
+flutter build windows --release # 发布构建
 ```
 
-## 原型范围（A 路线）
+产物在 `build/windows/x64/runner/Release/`，双击 `novel_reader.exe` 即可运行（需与同目录 DLL 及 data 文件夹一起分发）。
 
-- TXT：章节识别目录、分页缓存、左右翻页、主题/字体/字号/行距/页边距、进度条切片跳转、自动翻页、续读
-- PDF：打开/翻页/跳页/续读（目录若 PDF 自带则展示）
-- 文件视图：直接浏览文件夹打开阅读（不强制入库）
-- 书签 + 标签：专门入口聚合展示
-- 搜索：当前书 + 全书架（后台索引）
-- 同步：局域网同步进度/书签/标签/元信息（文件传输可后置）
+### Android
 
-## 仓库结构
+```powershell
+cd novel_reader
+flutter run -d <device-id>
+flutter build apk --release
+```
 
-- `novel_reader/`：Flutter 工程（主开发目录）
-- `README.md`：交接/总体说明（本文件）
+需要 Android SDK；存储权限（Android 11+ 为「所有文件访问」）在首次进入文件视图时申请。
 
-## 已实现功能（对应代码入口）
+## 测试
 
-- App 路由与启动：[app.dart](file:///c:/Users/Leo/Desktop/code/VibeReader/novel_reader/lib/src/app.dart)、[main.dart](file:///c:/Users/Leo/Desktop/code/VibeReader/novel_reader/lib/main.dart)
-- 书架（最近阅读）：[library_page.dart](file:///c:/Users/Leo/Desktop/code/VibeReader/novel_reader/lib/src/presentation/library/library_page.dart)
-- 文件视图（选择文件夹/打开书）：[files_page.dart](file:///c:/Users/Leo/Desktop/code/VibeReader/novel_reader/lib/src/presentation/files/files_page.dart)
-- 阅读页（TXT/PDF）：[reader_page.dart](file:///c:/Users/Leo/Desktop/code/VibeReader/novel_reader/lib/src/presentation/reader/reader_page.dart)
-- SQLite 数据库与表结构：[app_database.dart](file:///c:/Users/Leo/Desktop/code/VibeReader/novel_reader/lib/src/data/db/app_database.dart)
+```powershell
+cd novel_reader
+flutter test
+```
 
-## 数据模型与落库策略（当前实现）
+覆盖：章节识别、编码探测（GBK/UTF-16）、分页哈希、数据库迁移与同步方法、合并收敛性、真实 HTTP 回环同步。
 
-- `books`：打开文件时 upsert（以 bookId 为主键）
-- `reading_progress`：TXT 翻页时更新
-  - `char_offset`：当前页起始字符索引（用于续读）
-  - `segment_index`：当前页序号（临时字段，后续可用于进度条/切片）
-- 注意：目前 bookId 使用 `sha1(filePath)`，后续要做跨设备同步时建议改为文件内容 hash（或 fileSize+mtime+path 的组合策略）
+## 说明
 
-## 下一步建议（给后续 AI / 开发者）
-
-1. TXT 目录识别（章节规则）+ 目录页跳转
-2. 阅读设置：字号/行距/页边距/主题/字体导入，并触发重新分页
-3. 进度条切片（默认 500 字可配置）+ 拖拽跳转
-4. 当前书搜索 → 全书架索引（2-gram + segment 倒排）+ 高亮/片段预览
-5. PDF 渲染（选择合适插件）+ 页码续读
-6. 书签 + 标签中心 + 与关键词联动
-7. 局域网同步（进度/书签/标签/元信息）
-
+- Android 端接收 UDP 广播需要 MulticastLock（已通过平台通道在开启同步服务时自动获取）
+- 部分路由器开启「AP 隔离」会阻断设备间通信，需在路由器设置中关闭
+- Release APK 目前使用 debug 签名，正式分发前请配置自己的签名
