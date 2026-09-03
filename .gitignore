@@ -1,0 +1,32 @@
+# ===== 构建产物 =====
+# Windows 分发包 / 各平台构建输出
+*.zip
+android-sdk/
+
+# ===== 本地 SDK（沙箱构建用，体积巨大且机器相关）=====
+.android-sdk/
+**/.android-sdk/
+
+# ===== IDE / 工具 =====
+.idea/
+*.iml
+.vscode/
+.trae/
+
+# ===== Flutter 补充（novel_reader/.gitignore 已覆盖 build/ .dart_tool 等）=====
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.metadata
+
+# ===== 系统 =====
+Thumbs.db
+.DS_Store
+
+# ===== 本地配置（含机器路径，不入库）=====
+novel_reader/android/local.properties
+**/local.properties
+
+# ===== 发布签名（不入库，防止泄露）=====
+*.jks
+*.keystore
+key.properties
